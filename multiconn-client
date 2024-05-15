@@ -1,0 +1,104 @@
+# multiconn-client.py
+
+import sys
+import socket
+import selectors
+import types
+
+# The selectors module provides high-level I/O multiplexing built upon the select module primitives.
+sel = selectors.DefaultSelector()
+messages = [str.encode(message) for message in sys.argv[4:]] # Messages to send to the server (in bytes)
+
+# This function creates a socket, sets it to non-blocking mode, and initiates a connection to the server.
+def start_connections(host, port, num_conns):
+    server_addr = (host, port) # The server address is a tuple containing the host and port.
+
+    # The for loop creates num_conns connections to the server.
+    for i in range(0, num_conns):
+        connid = i + 1 # The connection ID is just the loop index plus one.
+        print(f"Starting connection {connid} to {server_addr}")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        # The setblocking() method is used to set the socket to non-blocking mode.
+        sock.setblocking(False)
+        sock.connect_ex(server_addr) # The connect_ex() method is used to initiate the connection.
+
+        # The data attribute of the key is a namespace that holds the connection ID, the total number of bytes to receive,
+        # the total number of bytes received, the messages to send, and the outgoing data buffer.
+        events = selectors.EVENT_READ | selectors.EVENT_WRITE
+        data = types.SimpleNamespace(
+            connid=connid,
+            msg_total=sum(len(m) for m in messages),
+            recv_total=0,
+            messages=messages.copy(),
+            outb=b"",
+        )
+
+        # The register() method is used to register the socket with the selector for monitoring.
+        sel.register(sock, events, data=data)
+
+# This function is called when a socket is ready to read or write data.
+def service_connection(key, mask):
+    sock = key.fileobj # The key.fileobj attribute is the socket object.
+    data = key.data # The key.data attribute is the data namespace.
+
+    # If the socket is ready for reading, then mask & selectors.EVENT_READ will evaluate to True, so sock.recv() is called.
+    # Any data that’s read is appended to data.recv_total so that it can be sent later.
+    if mask & selectors.EVENT_READ:
+        recv_data = sock.recv(1024)  # Should be ready to read
+        if recv_data:
+            print(f"Received {recv_data!r} from connection {data.connid}")
+            data.recv_total += len(recv_data)
+        if not recv_data or data.recv_total == data.msg_total:
+            print(f"Closing connection {data.connid}")
+            sel.unregister(sock)
+            sock.close()
+     
+    # When the socket is ready for writing, which should always be the case for a healthy socket,
+    # any received data stored in data.outb is echoed to the client using sock.send().
+    # The bytes sent are then removed from the send buffer
+    if mask & selectors.EVENT_WRITE:
+        if not data.outb and data.messages:
+            data.outb = data.messages.pop(0)
+        if data.outb:
+            print(f"Sending {data.outb!r} to connection {data.connid}")
+            sent = sock.send(data.outb)  # Should be ready to write
+            data.outb = data.outb[sent:]
+
+# Check for the correct number of arguments
+if len(sys.argv) <= 4:
+    print(f"Usage: {sys.argv[0]} <host> <port> <num_connections>")
+    sys.exit(1)
+
+host, port, num_conns = sys.argv[1:4]
+start_connections(host, int(port), int(num_conns))
+
+# Event loop
+try:
+    while True:
+
+        # sel.select(timeout=None) blocks until there are sockets ready for I/O. It returns a list of tuples, one for each socket.
+        events = sel.select(timeout=None)
+        # print(f"\nevents: {events}\n")
+
+        # Check for available events and call the appropriate callback function for each event.
+        if events:
+            # Each tuple contains a key and a mask.
+            # The key is a SelectorKey namedtuple that contains a fileobj attribute.
+            # key.fileobj is the socket object, and mask is an event mask of the operations that are ready.
+            for key, mask in events:
+                # service_connection() is then called with key and mask as arguments, and that’s everything you need to operate on the socket.
+                service_connection(key, mask)
+
+        # Check for a socket being monitored to continue.
+        if not sel.get_map():
+            break
+
+except OSError as e:
+    print(f"Caught OS Error, exiting: {e}")
+
+except KeyboardInterrupt:
+    print("Caught keyboard interrupt, exiting")
+
+finally:
+    sel.close()
