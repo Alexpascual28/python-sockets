@@ -94,8 +94,8 @@ try:
         if not sel.get_map():
             break
 
-except OSError as e:
-    print(f"Caught OS Error, exiting: {e}")
+# except OSError as e:
+#     print(f"Caught OS Error, exiting: {e}")
 
 except KeyboardInterrupt:
     print("Caught keyboard interrupt, exiting")

@@ -6,13 +6,15 @@ HOST = "0.0.0.0" # "127.0.0.1"  # Standard loopback interface address (localhost
 PORT = 8890 # 65432  # Port to listen on (non-privileged ports are > 1023)
 
 with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+    print ('\r\n\r\nTello Python3 UDP Server.\r\n')
+
     s.bind((HOST, PORT))
-    s.listen()
-    conn, addr = s.accept()
-    with conn:
-        print(f"Connected by {addr}")
-        while True:
-            data = conn.recv(1024)
-            if not data:
-                break
-            conn.sendall(data)
+
+    while True:
+        try:
+            data, server = s.recvfrom(1518)
+            print(data.decode(encoding="utf-8"))
+
+        except KeyboardInterrupt:
+            print ('\nExit . . .\n')
+            break
