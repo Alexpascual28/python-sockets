@@ -198,6 +198,101 @@ class Tello:
         else:
             print(f"Direction value must be one of the following: {possible_directions.keys()}")
 
+    def go(self, x, y, z, speed):
+        if x >= 20 and x <= 500 and y >= 20 and y <= 500 and z >= 20 and z <= 500 and speed >= 10 and speed <= 100:
+            self._send_command(f"go {x} {y} {z} {speed}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Values must be between 20 and 500 for x, y, z and between 10 and 100 for speed")
+
+    def go(self, x, y, z, speed, mid):
+        if x >= 20 and x <= 500 and y >= 20 and y <= 500 and z >= 20 and z <= 500 and speed >= 10 and speed <= 100:
+            self._send_command(f"go {x} {y} {z} {speed} m{mid}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Values must be between 20 and 500 for x, y, z and between 10 and 100 for speed")
+
+    def stop(self):
+        self._send_command("stop")
+        response = self._read_socket(self.server_socket, self.data_buffersize)
+        print(f"Response: {response}")
+
+    def curve(self, x1, y1, z1, x2, y2, z2, speed):
+        if x1 >= 20 and x1 <= 500 and y1 >= 20 and y1 <= 500 and z1 >= 20 and z1 <= 500 and x2 >= 20 and x2 <= 500 and y2 >= 20 and y2 <= 500 and z2 >= 20 and z2 <= 500 and speed >= 10 and speed <= 60:
+            self._send_command(f"curve {x1} {y1} {z1} {x2} {y2} {z2} {speed}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Values must be between 20 and 500 for x1, y1, z1, x2, y2, z2 and between 10 and 60 for speed")
+
+    def curve(self, x1, y1, z1, x2, y2, z2, speed, mid):
+        if x1 >= 20 and x1 <= 500 and y1 >= 20 and y1 <= 500 and z1 >= 20 and z1 <= 500 and x2 >= 20 and x2 <= 500 and y2 >= 20 and y2 <= 500 and z2 >= 20 and z2 <= 500 and speed >= 10 and speed <= 60:
+            self._send_command(f"curve {x1} {y1} {z1} {x2} {y2} {z2} {speed} m{mid}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Values must be between 20 and 500 for x1, y1, z1, x2, y2, z2 and between 10 and 60 for speed")
+
+    def jump(self, x, y, z, speed, yaw, mid1, mid2):
+        if x >= 20 and x <= 500 and y >= 20 and y <= 500 and z >= 20 and z <= 500 and speed >= 10 and speed <= 100 and yaw >= 1 and yaw <= 360:
+            self._send_command(f"jump {x} {y} {z} {speed} {yaw} m{mid1} m{mid2}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Values must be between 20 and 500 for x, y, z, between 10 and 100 for speed and between 1 and 360 for yaw")
+
+    # SET COMMANDS
+
+    def set_speed(self, speed):
+        if speed >= 10 and speed <= 100:
+            self._send_command(f"speed {speed}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Speed value must be between 10 and 100")
+
+    def set_rc_control(self, a, b, c, d):
+        if a >= -100 and a <= 100 and b >= -100 and b <= 100 and c >= -100 and c <= 100 and d >= -100 and d <= 100:
+            self._send_command(f"rc {a} {b} {c} {d}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Values must be between -100 and 100 for a, b, c, d")
+
+    def set_wifi(self, ssid, password):
+        self._send_command(f"wifi {ssid} {password}")
+        response = self._read_socket(self.server_socket, self.data_buffersize)
+        print(f"Response: {response}")
+
+    def set_mission_pad_detection(self, on_off):
+        if on_off == "on":
+            self._send_command(f"mon")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        elif on_off == "off":
+            self._send_command(f"moff")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print("Value must be 'on' or 'off'")
+
+    def set_mission_pad_detection_direction(self, direction):
+        possible_directions = {"forward": "0", "downward": "1", "both": "2"}
+
+        if direction in possible_directions:
+            self._send_command(f"mdirection {possible_directions[direction]}")
+            response = self._read_socket(self.server_socket, self.data_buffersize)
+            print(f"Response: {response}")
+        else:
+            print(f"Direction value must be one of the following: {possible_directions.keys()}")
+
+    def set_station_mode(self, ssid, password):
+        self._send_command(f"ap {ssid} {password}")
+        response = self._read_socket(self.server_socket, self.data_buffersize)
+        print(f"Response: {response}")
+
     # READ COMMANDS
 
     def read_speed(self):
@@ -235,6 +330,12 @@ class Tello:
         serial_number = self._read_socket(self.server_socket, self.data_buffersize)
         print(f"Tello Serial Number: {serial_number}")
         return serial_number
+    
+    def read_image_feed(self):
+        self._send_command("streamon")
+        image = self._read_socket(self.video_socket, self.video_buffersize)
+        print(f"Image: {image}")
+        return image
     
     # TELLO STATE
 
