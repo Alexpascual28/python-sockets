@@ -87,7 +87,7 @@ class Tello:
 
     def _read_socket(self, socket, buffersize):
         data, server = socket.recvfrom(buffersize)
-        print(data.decode(encoding="utf-8"))
+        return data.decode(encoding="utf-8")
 
     # CONTROL COMMANDS
 
@@ -98,6 +98,11 @@ class Tello:
         self._send_command("command")
         response = self._read_socket(self.server_socket, self.data_buffersize)
         print(f"Response: {response}")
+
+    def end(self):
+        print("Ending robot...")
+        self.land()
+        self._send_command("end")
 
     def takeoff(self):
         self._send_command("takeoff")
@@ -356,7 +361,7 @@ class Tello:
                 setattr(self.tello_state, field.name, state_list[i][1])
                 i = i + 1
 
-            print(f"Tello State: {self.tello_state}")
+            # print(f"Tello State: {self.tello_state}")
             return self.tello_state
         else:
             print("Drone server socket must be pointed to state socket to get the Tello State. Returning last known state.")
