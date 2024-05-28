@@ -11,6 +11,7 @@ import socket
 import sys
 import time
 from dataclasses import dataclass, fields
+import cv2
 
 @dataclass
 class TelloState:
@@ -91,9 +92,9 @@ class Tello:
 
     # CONTROL COMMANDS
 
-    def start_sdk_mode(self, receive_state=False):
+    def start_sdk_mode(self, mode="local"):
         print("Initialising SDK Mode...")
-        self.server_socket = self.data_socket if receive_state==True else self.local_socket
+        self.server_socket = self.data_socket if mode=="state" else self.video_socket if mode=="video" else self.local_socket
 
         self._send_command("command")
         response = self._read_socket(self.server_socket, self.data_buffersize)
@@ -336,11 +337,21 @@ class Tello:
         print(f"Tello Serial Number: {serial_number}")
         return serial_number
     
-    def read_image_feed(self):
-        self._send_command("streamon")
-        image = self._read_socket(self.video_socket, self.video_buffersize)
-        print(f"Image: {image}")
-        return image
+    # VIDEO FEED
+
+    def receive_camera_image(self):
+        # Receive and display the camera image
+        while True:
+            try:
+                data, _ = self.video_socket.recvfrom(self.video_buffersize)
+                # Display the camera image using your preferred method (e.g., OpenCV, PIL)
+                cv2.imshow('Camera Image', data)
+                cv2.waitKey(1)
+            except KeyboardInterrupt:
+                break
+
+        # Close the video socket
+        self.video_socket.close()
     
     # TELLO STATE
 

@@ -5,7 +5,7 @@ tello = tello.Tello()
 
 time.sleep(1)
 
-tello.start_sdk_mode(receive_state=True)
+tello.start_sdk_mode(mode="video")
 tello.takeoff()
 
 while True:
