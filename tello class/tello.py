@@ -12,6 +12,8 @@ import sys
 import time
 from dataclasses import dataclass, fields
 import cv2
+import numpy as np
+import subprocess
 
 @dataclass
 class TelloState:
@@ -61,11 +63,21 @@ class Tello:
         self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.data_socket.bind(state_address)
 
-        self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.video_socket.bind(video_address)
+        # self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
+        # self.video_socket.bind(video_address)
 
         self.data_buffersize = 1518
-        self.video_buffersize = 4096
+        self.video_buffersize = 2048
+
+        # Start ffmpeg subprocess to decode the video stream
+        self.ffmpeg_process = subprocess.Popen([
+            'ffmpeg',
+            '-i', 'udp://0.0.0.0:11111',  # Input from UDP stream
+            '-f', 'rawvideo',
+            '-pix_fmt', 'bgr24',
+            '-'
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         self.tello_state = TelloState()
 
@@ -94,7 +106,7 @@ class Tello:
 
     def start_sdk_mode(self, mode="local"):
         print("Initialising SDK Mode...")
-        self.server_socket = self.data_socket if mode=="state" else self.video_socket if mode=="video" else self.local_socket
+        self.server_socket = self.data_socket if mode=="state" else self.local_socket # else self.video_socket if mode=="video" else self.local_socket
 
         self._send_command("command")
         response = self._read_socket(self.server_socket, self.data_buffersize)
@@ -340,21 +352,36 @@ class Tello:
     # VIDEO FEED
 
     def receive_camera_image(self):
-        # Receive and display the camera image
+        cv2.namedWindow('Camera Image', cv2.WINDOW_NORMAL)
+
         while True:
             try:
-                data, _ = self.video_socket.recvfrom(self.video_buffersize)
-                # Display the camera image using your preferred method (e.g., OpenCV, PIL)
-                cv2.imshow('Camera Image', data)
+                # Read raw video frame from ffmpeg subprocess
+                raw_frame = self.ffmpeg_process.stdout.read(1280 * 720 * 3)  # Assuming 720p video stream
+
+                print(len(raw_frame))
+
+                if len(raw_frame) != 1280 * 720 * 3:
+                    print("Incomplete frame received")
+                    continue
+
+                # Convert raw frame to numpy array
+                frame = np.frombuffer(raw_frame, dtype=np.uint8).reshape((720, 1280, 3))
+
+                # Display the frame
+                cv2.imshow('Camera Image', frame)
                 cv2.waitKey(1)
+
             except KeyboardInterrupt:
                 break
-            except:
-                print("Error receiving video feed")
+            except Exception as e:
+                print("Error receiving video feed:", e)
                 continue
 
         # Close the video socket
         self.video_socket.close()
+        cv2.destroyAllWindows()
+        self.ffmpeg_process.terminate()
     
     # TELLO STATE
 
