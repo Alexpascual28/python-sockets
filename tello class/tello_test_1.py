@@ -1,16 +1,22 @@
 import tello
 import time
+import cv2
 
 tello = tello.Tello()
 
 time.sleep(1)
 
 tello.start_sdk_mode(mode="video")
-tello.takeoff()
+tello.streamon()
 
-while True:
-    tello_state = tello.get_state()
+try:
 
-    vertical_acceleration = tello_state.agz
+    while True:
+        frame = tello.receive_camera_image()
+        cv2.imshow("frame", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-    print(vertical_acceleration)
+except KeyboardInterrupt:
+    print("Keyboard Interrupt")
+    tello.streamoff()

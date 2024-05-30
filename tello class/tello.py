@@ -349,6 +349,9 @@ class Tello:
                 cv2.waitKey(1)
             except KeyboardInterrupt:
                 break
+            except:
+                print("Error receiving video feed")
+                continue
 
         # Close the video socket
         self.video_socket.close()
