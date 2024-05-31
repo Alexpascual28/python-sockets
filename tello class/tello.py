@@ -6,14 +6,22 @@
 # https://dl-cdn.ryzerobotics.com/downloads/Tello/Tello%20SDK%202.0%20User%20Guide.pdf
 #
 
-import threading 
+import threading
+import logging
 import socket
 import sys
 import time
+
 from dataclasses import dataclass, fields
+
 import cv2
 import numpy as np
 import subprocess
+import av
+
+from collections import deque
+from threading import Thread, Lock
+from typing import Optional, Union, Type, Dict
 
 @dataclass
 class TelloState:
@@ -44,7 +52,160 @@ class TelloState:
     agy: float = 0.0 # Acceleration in the Y axis
     agz: float = 0.0 # Acceleration in the Z axis
 
+class TelloException(Exception):
+    pass
+
+class BackgroundFrameRead:
+    """
+    This class read frames using PyAV in background. Use
+    backgroundFrameRead.frame to get the current frame.
+    """
+
+    def __init__(self, tello, address, with_queue = False, maxsize = 32):
+        self.address = address
+        self.lock = Lock()
+        self.frame = np.zeros([300, 400, 3], dtype=np.uint8)
+        self.frames = deque([], maxsize)
+        self.with_queue = with_queue
+
+        # Try grabbing frame with PyAV
+        # According to issue #90 the decoder might need some time
+        # https://github.com/damiafuentes/DJITelloPy/issues/90#issuecomment-855458905
+        try:
+            Tello.LOGGER.debug('trying to grab video frames...')
+            self.container = av.open(self.address, timeout=(Tello.FRAME_GRAB_TIMEOUT, None))
+        except av.error.ExitError:
+            raise TelloException('Failed to grab video frames from video stream')
+
+        self.stopped = False
+        self.worker = Thread(target=self.update_frame, args=(), daemon=True)
+
+    def start(self):
+        """Start the frame update worker
+        Internal method, you normally wouldn't call this yourself.
+        """
+        self.worker.start()
+
+    def update_frame(self):
+        """Thread worker function to retrieve frames using PyAV
+        Internal method, you normally wouldn't call this yourself.
+        """
+        try:
+            for frame in self.container.decode(video=0):
+                if self.with_queue:
+                    self.frames.append(np.array(frame.to_image()))
+                else:
+                    self.frame = np.array(frame.to_image())
+
+                if self.stopped:
+                    self.container.close()
+                    break
+        except av.error.ExitError:
+            raise TelloException('Do not have enough frames for decoding, please try again or increase video fps before get_frame_read()')
+    
+    def get_queued_frame(self):
+        """
+        Get a frame from the queue
+        """
+        with self.lock:
+            try:
+                return self.frames.popleft()
+            except IndexError:
+                return None
+
+    @property
+    def frame(self):
+        """
+        Access the frame variable directly
+        """
+        if self.with_queue:
+            return self.get_queued_frame()
+
+        with self.lock:
+            return self._frame
+
+    @frame.setter
+    def frame(self, value):
+        with self.lock:
+            self._frame = value
+
+    def stop(self):
+        """Stop the frame update worker
+        Internal method, you normally wouldn't call this yourself.
+        """
+        self.stopped = True
+
 class Tello:
+    """Python wrapper to interact with the Ryze Tello drone using the official Tello api.
+    Tello API documentation:
+    [1.3](https://dl-cdn.ryzerobotics.com/downloads/tello/20180910/Tello%20SDK%20Documentation%20EN_1.3.pdf),
+    [2.0 with EDU-only commands](https://dl-cdn.ryzerobotics.com/downloads/Tello/Tello%20SDK%202.0%20User%20Guide.pdf)
+    """
+    # Send and receive commands, client socket
+    RESPONSE_TIMEOUT = 7  # in seconds
+    TAKEOFF_TIMEOUT = 20  # in seconds
+    FRAME_GRAB_TIMEOUT = 5
+    TIME_BTW_COMMANDS = 0.1  # in seconds
+    TIME_BTW_RC_CONTROL_COMMANDS = 0.001  # in seconds
+    RETRY_COUNT = 3  # number of retries after a failed command
+    TELLO_IP = '192.168.10.1'  # Tello IP address
+
+    # Video stream, server socket
+    VS_UDP_IP = '0.0.0.0'
+    DEFAULT_VS_UDP_PORT = 11111
+    VS_UDP_PORT = DEFAULT_VS_UDP_PORT
+
+    CONTROL_UDP_PORT = 8889
+    STATE_UDP_PORT = 8890
+
+    # Constants for video settings
+    BITRATE_AUTO = 0
+    BITRATE_1MBPS = 1
+    BITRATE_2MBPS = 2
+    BITRATE_3MBPS = 3
+    BITRATE_4MBPS = 4
+    BITRATE_5MBPS = 5
+    RESOLUTION_480P = 'low'
+    RESOLUTION_720P = 'high'
+    FPS_5 = 'low'
+    FPS_15 = 'middle'
+    FPS_30 = 'high'
+    CAMERA_FORWARD = 0
+    CAMERA_DOWNWARD = 1
+
+    # Set up logger
+    HANDLER = logging.StreamHandler()
+    FORMATTER = logging.Formatter('[%(levelname)s] %(filename)s - %(lineno)d - %(message)s')
+    HANDLER.setFormatter(FORMATTER)
+
+    LOGGER = logging.getLogger('djitellopy')
+    LOGGER.addHandler(HANDLER)
+    LOGGER.setLevel(logging.INFO)
+    # Use Tello.LOGGER.setLevel(logging.<LEVEL>) in YOUR CODE
+    # to only receive logs of the desired level and higher
+
+    # Conversion functions for state protocol fields
+    INT_STATE_FIELDS = (
+        # Tello EDU with mission pads enabled only
+        'mid', 'x', 'y', 'z',
+        # 'mpry': (custom format 'x,y,z')
+        # Common entries
+        'pitch', 'roll', 'yaw',
+        'vgx', 'vgy', 'vgz',
+        'templ', 'temph',
+        'tof', 'h', 'bat', 'time'
+    )
+    FLOAT_STATE_FIELDS = ('baro', 'agx', 'agy', 'agz')
+
+    state_field_converters: Dict[str, Union[Type[int], Type[float]]]
+    state_field_converters = {key : int for key in INT_STATE_FIELDS}
+    state_field_converters.update({key : float for key in FLOAT_STATE_FIELDS})
+
+    # VideoCapture object
+    background_frame_read: Optional['BackgroundFrameRead'] = None
+
+    stream_on = False
+    is_flying = False
 
     # PRIVATE MEMBERS
 
@@ -63,9 +224,8 @@ class Tello:
         self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.data_socket.bind(state_address)
 
-        # self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        
-        # self.video_socket.bind(video_address)
+        #self.video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        #self.video_socket.bind(video_address)
 
         self.data_buffersize = 1518
         self.video_buffersize = 2048
@@ -350,9 +510,29 @@ class Tello:
         return serial_number
     
     # VIDEO FEED
+    def get_udp_video_address(self) -> str:
+        """Internal method, you normally wouldn't call this youself.
+        """
+        address_schema = 'udp://@{ip}:{port}'  # + '?overrun_nonfatal=1&fifo_size=5000'
+        address = address_schema.format(ip=self.VS_UDP_IP, port=self.VS_UDP_PORT)
+        return address
+
+    def get_frame_read(self, with_queue = False, max_queue_len = 32) -> 'BackgroundFrameRead':
+        """Get the BackgroundFrameRead object from the camera drone. Then, you just need to call
+        backgroundFrameRead.frame to get the actual frame received by the drone.
+        Returns:
+            BackgroundFrameRead
+        """
+        if self.background_frame_read is None:
+            address = self.get_udp_video_address()
+            self.background_frame_read = BackgroundFrameRead(self, address, with_queue, max_queue_len)
+            self.background_frame_read.start()
+        return self.background_frame_read
 
     def receive_camera_image(self):
         cv2.namedWindow('Camera Image', cv2.WINDOW_NORMAL)
+
+        print("Receiving video feed...")
 
         while True:
             try:
@@ -379,7 +559,7 @@ class Tello:
                 continue
 
         # Close the video socket
-        self.video_socket.close()
+        # self.video_socket.close()
         cv2.destroyAllWindows()
         self.ffmpeg_process.terminate()
     

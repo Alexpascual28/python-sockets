@@ -1,11 +1,19 @@
 import tello
 import time
+import cv2
 
-tello = tello.Tello()
+drone = tello.Tello()
 
 time.sleep(1)
 
-tello.start_sdk_mode(mode="video")
-tello.streamon()
+drone.start_sdk_mode(mode="local")
+drone.streamon()
 
-tello.receive_camera_image()
+# frame_read = drone.get_frame_read()
+
+# drone.takeoff()
+# cv2.imwrite("picture.png", frame_read.frame)
+
+# drone.land()
+
+drone.receive_camera_image()
